@@ -1,0 +1,1262 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- (v6.3 修正) GitHub Pages対応のためJSエラーを修正 -->
+    <title>小学2年生向け 英語文法あそび v6.3</title>
+    
+    <!-- 1. Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- 2. React ライブラリ -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+    
+    <!-- 3. Babel (JSXをブラウザで変換する) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        /* Interフォントの読み込み（Tailwindのデフォルト） */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            scroll-behavior: smooth;
+        }
+        /* 正解時のアニメーション */
+        @keyframes flash-correct {
+            0% { background-color: rgba(255,255,255,0.9); }
+            50% { background-color: rgba(209, 250, 229, 0.9); } /* emerald-100/90 */
+            100% { background-color: rgba(255,255,255,0.9); }
+        }
+        .animate-flash-correct {
+            animation: flash-correct 0.6s ease-in-out;
+        }
+        /* ガチャ結果用のアニメーション */
+        @keyframes jump-in {
+            0% { transform: scale(0.5); opacity: 0; }
+            70% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .animate-jump-in {
+            animation: jump-in 0.3s ease-out;
+        }
+    </style>
+</head>
+<body class="bg-gray-100">
+
+    <!-- 4. Reactアプリが描画される場所 -->
+    <div id="root"></div>
+
+    <!-- 5. Reactアプリのコード (type="text/babel" に注意) -->
+    <script type="text/babel">
+// ------------------------------
+// 小学2年生向け 英語文法あそびアプリ（改善版 v6.3）
+//
+// v6.2からの主な変更点：
+// 1. (v6.3 修正1) GitHub Pagesで白い画面になるエラーを修正。
+//    (古い 'const CARDS' の定義が残っており、'CARDS_V6_2' と重複していたのを削除)
+//
+// v6.1からの主な変更点：
+// 1. (v6.2 修正1) 前置詞や他の選択問題で、選択肢が正しく4択にならないバグを修正
+// 2. (v6.2 修正2) 称号の名前を変更 (10000pt, 20000pt)
+// 3. (v6.2 修正3) ブザー音を削除
+// 4. (v6.2 修正4) カードの種類を50種 -> 100種 に倍増
+// 5. (v6.2 修正5) ガチャが引ける時(gachaPulls > 0)に問題カード内にサインを表示
+// ------------------------------
+const { useEffect, useMemo, useRef, useState, useCallback } = React;
+
+// ✅ ふりがな（<ruby>タグを使用）
+function F({ rb, rt }) {
+  return (
+    <ruby className="[ruby-position:over]">
+      <span>{rb}</span>
+      <rt className="text-xs text-gray-600">{rt}</rt>
+    </ruby>
+  );
+}
+
+const GLOBAL_TITLES = [
+  { id: "start", name: "はじめの一歩", emoji: '🌟', desc: "合計5問正解で獲得" },
+  { id: "streak5", name: "連続キング", emoji: '👑', desc: "5連続正解で獲得" },
+  { id: "owlGuide", name: "フクロウ先生", emoji: '🦉', desc: "be動詞レッスンで5問正解" },
+  { id: "morningMaster", name: "朝活マスター", emoji: '☀️', desc: "午前5時～10時にプレイして獲得" },
+  { id: "coin1000", name: "ポイント1000獲得", emoji: '💎', desc: "合計1000ポイント獲得" },
+  { id: "explorer", name: "レッスン探検家", emoji: '🧭', desc: "4種類以上のレッスンで正解" },
+  { id: "lionHero", name: "ライオンの勇者", emoji: '🦁', desc: "合計5000ポイントで獲得" },
+  { id: "coin10000", name: "ゴールドコレクター", emoji: '💰', desc: "合計10000ポイント獲得" },
+  { id: "coin20000", name: "プラチナコレクター", emoji: '🏦', desc: "合計20000ポイント獲得" },
+];
+const TITLE_PERKS = {
+  start: { headerBadge: "はじめの一歩", headerClass: "border-b-4 border-amber-300" },
+  streak5: { headerBadge: "連続キング" },
+  owlGuide: { headerBadge: "フクロウ先生", beHint: true },
+  morningMaster: { headerBadge: "朝活マスター", headerClass: "border-2 border-yellow-300" },
+  coin1000: { headerBadge: "ポイント1000獲得" },
+  explorer: { headerBadge: "レッスン探検家" },
+  lionHero: { headerBadge: "ライオンの勇者", headerClass: "border-4 border-orange-400" },
+  coin10000: { headerBadge: "ゴールドコレクター" },
+  coin20000: { headerBadge: "プラチナコレクター" },
+};
+const LESSON_TITLES = [
+    { id: 'correct10', name: 'ブロンズ', emoji: '🥉', condition: (s) => s.correct >= 10, desc: "合計10問正解" },
+    { id: 'streak10', name: 'シルバー', emoji: '🥈', condition: (s) => s.streakMax >= 10, desc: "10問連続正解" },
+    { id: 'streak20', name: 'ゴールド', emoji: '🥇', condition: (s) => s.streakMax >= 20, desc: "20問連続正解" },
+    { id: 'platinum', name: 'プラチナ', emoji: '💎', condition: (s) => (s.correct * 5) >= 100, desc: "100レッスンPt獲得" },
+    { id: 'master', name: 'マスター', emoji: '🏆', condition: (s) => ['correct10', 'streak10', 'streak20', 'platinum'].every(t => s.titles.includes(t)), desc: "上記4つの称号をすべて獲得" },
+];
+const LESSON_TITLE_PERKS = {
+    correct10: { border: 'border-2 border-amber-700/50' },
+    streak10: { border: 'border-2 border-slate-400/80' },
+    streak20: { border: '[3px] border-amber-400 shadow-[0_0_0_3px_rgba(251,191,36,0.2)]' },
+    platinum: { border: '[3px] border-sky-400 ring-2 ring-sky-300', bg: 'bg-gradient-to-br from-sky-50/50 to-white' },
+    master: { border: '[3px] border-purple-500 shadow-[0_0_0_3px_rgba(168,85,247,0.3)]', bg: 'bg-gradient-to-br from-purple-100/50 to-indigo-100/50' },
+};
+const getLessonCardClass = (base, titles) => {
+    let perk = {};
+    if (titles.includes('master')) perk = LESSON_TITLE_PERKS.master;
+    else if (titles.includes('platinum')) perk = LESSON_TITLE_PERKS.platinum;
+    else if (titles.includes('streak20')) perk = LESSON_TITLE_PERKS.streak20;
+    else if (titles.includes('streak10')) perk = LESSON_TITLE_PERKS.streak10;
+    else if (titles.includes('correct10')) perk = LESSON_TITLE_PERKS.correct10;
+    return `${base} ${perk.border || 'border border-gray-200'} ${perk.bg || ''}`;
+};
+
+const speakEn = (text) => {
+  try {
+    if (typeof window === "undefined" || !window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "en-US";
+    u.rate = 0.7;
+    u.pitch = 1.0;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch {}
+};
+
+const getTodayString = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0'); // 0-indexed
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+// ===== グローバル定数・ヘルパー関数 =====
+const LS_KEY = "eigoAppS2_v5";
+
+const ALL_SUBJECTS = ["I", "You", "He", "She", "Taro", "Hanako", "We", "They"];
+const ALL_SINGULAR_SUBJECTS = ["He", "She", "Taro", "Hanako"];
+const BE_Q_SUBJECTS = ["I", "you", "he", "she", "Taro", "Hanako", "we", "they"];
+const ALL_Q_SUBJECTS = ["you", "he", "she", "Taro", "Hanako", "they"];
+
+const getJPSubj = (s) => ({ "I": <><F rb="わたし" rt="わたし"/>は</>, "You": <><F rb="あなた" rt="あなた"/>は</>, "He": <><F rb="彼" rt="かれ"/>は</>, "She": <><F rb="彼女" rt="かのじょ"/>は</>, "Taro": <>たろうくんは</>, "Hanako": <>はなこさんは</>, "We": <><F rb="わたしたち" rt="わたし"/>は</>, "They": <><F rb="彼ら" rt="かれ"/>は</>, "you": <><F rb="あなた" rt="あなた"/>は</>, "he": <><F rb="彼" rt="かれ"/>は</>, "she": <><F rb="彼女" rt="かのじょ"/>は</>, "they": <><F rb="彼ら" rt="かれ"/>は</>, }[s] || <>{s}は</>);
+const jpPlace = (p) => ({ "in the box": <><F rb="箱" rt="はこ"/>の<F rb="中" rt="なか"/>に</>, "on the desk": <><F rb="机" rt="つくえ"/>の<F rb="上" rt="うえ"/>に</>, "under the table": <>テーブルの<F rb="下" rt="した"/>に</>, "next to the chair": <>いすのとなりに</>, "behind the chair": <>いすのうしろに</>, "near the door": <>ドアのそばに</>, "in front of the TV": <>テレビの<F rb="前" rt="まえ"/>に</>, "between the chairs": <>いすの<F rb="間" rt="あいだ"/>に</>, "at home": <><F rb="家" rt="いえ"/>に</>, "at school": <><F rb="学校" rt="がっこう"/>に</>, "in the park": <><F rb="公園" rt="こうえん"/>に</>, "at the library": <><F rb="図書館" rt="としょかん"/>に</>, "under the tree": <><F rb="木" rt="き"/>の<F rb="下" rt="した"/>に</>, }[p] || p);
+const jpPlaceNi = (p) => ({ "at home": <><F rb="家" rt="いえ"/>に</>, "at school": <><F rb="学校" rt="がっこう"/>に</>, "in the park": <><F rb="公園" rt="こうえん"/>に</>, "at the library": <><F rb="図書館" rt="としょかん"/>に</>, }[p] || p);
+const jpTime = (t) => ({ "yesterday": <><F rb="昨日" rt="きのう"/></>, "last night": <><F rb="昨夜" rt="さくや"/></>, "this morning": <><F rb="今朝" rt="けさ"/></>, "on Sunday": <><F rb="日曜" rt="にちよう"/>びに</>, }[t] || t);
+const nounJP = (n) => ({ "apple": <><F rb="りんご" rt="りんご"/></>, "egg": <><F rb="たまご" rt="たまご"/></>, "orange": <>オレンジ</>, "umbrella": <><F rb="かさ" rt="かさ"/></>, "book": <><F rb="本" rt="ほん"/></>, "bag": <><F rb="かばん" rt="かばん"/></>, "cat": <><F rb="ねこ" rt="ねこ"/></>, "dog": <><F rb="いぬ" rt="いぬ"/></>, }[n] || n);
+const getPossessive = (s) => ({ "I": "my", "You": "your", "He": "his", "She": "her", "Taro": "his", "Hanako": "her", "We": "our", "They": "their", "you": "your", "he": "his", "she": "her", "they": "their", }[s] || "your");
+
+const rand = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const shuffle = (arr) => arr.slice().sort(() => Math.random() - 0.5);
+const ensureFourChoices = (arr) => {
+    let choices = Array.from(new Set(arr)); // 重複削除
+    const correct = choices[0];
+    let others = choices.slice(1);
+    
+    if (choices.length < 4) {
+        return shuffle(choices);
+    }
+    
+    if (others.length >= 3) {
+        others = shuffle(others).slice(0, 3);
+    }
+    
+    return shuffle([correct, ...others]);
+};
+
+
+// ===== 問題生成関数 =====
+const prepoScenes = [
+    { key: "in", en: "in the box" }, { key: "on", en: "on the desk" },
+    { key: "under", en: "under the table" }, { key: "next to", en: "next to the chair" },
+    { key: "behind", en: "behind the chair" },
+    { key: "near", en: "near the door" },
+    { key: "in front of", en: "in front of the TV" },
+    { key: "between", en: "between the chairs" },
+];
+const DID_PAIRS = [
+  { v: "play",   tail: "soccer",          jp: (h) => <span>{h}サッカーを しましたか？</span> },
+  { v: "watch", tail: "TV",               jp: (h) => <span>{h}テレビを みましたか？</span> },
+  { v: "eat",   tail: "lunch",           jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べましたか？</span> },
+  { v: "go",    tail: "to school",       jp: (h) => <span>{h}<F rb="学校" rt="がっこう" />へ <F rb="行" rt="い"/>きましたか？</span> },
+  { v: "read",  tail: "a book",          jp: (h) => <span>{h}<F rb="本" rt="ほん" />を <F rb="読" rt="よ"/>みましたか？</span> },
+  { v: "do",    tail: (s) => `${getPossessive(s)} homework`, jp: (h) => <span>{h}<F rb="宿題" rt="しゅくだい" />を しましたか？</span> },
+  { v: "have",  tail: "lunch",           jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べましたか？</span> },
+  { v: "study", tail: "English", jp: (h) => <span>{h}<F rb="英語" rt="えいご" />を <F rb="勉強" rt="べんきょう" />しましたか？</span> },
+  { v: "clean", tail: "your room", jp: (h) => <span>{h}へやを <F rb="掃除" rt="そうじ" />しましたか？</span> },
+  { v: "listen", tail: "to music", jp: (h) => <span>{h}<F rb="音楽" rt="おんがく" />を <F rb="聞" rt="き" />きましたか？</span> },
+  { v: "talk", tail: "with Takeru", jp: (h) => <span>{h}たけるくんと <F rb="話" rt="はな" />しましたか？</span> },
+  { v: "wash", tail: "the car", jp: (h) => <span>{h}<F rb="車" rt="くるま" />を <F rb="洗" rt="あら" />いましたか？</span> },
+];
+const progressiveActs = [
+  { ing: "playing soccer", jpPresent: <><F rb="サッカー" rt="さっかー" />を しています。</>, jpPast: <><F rb="サッカー" rt="さっかー" />を していました。</> },
+  { ing: "reading a book", jpPresent: <><F rb="本" rt="ほん" />を よんでいます。</>, jpPast: <><F rb="本" rt="ほん" />を よんでいました。</> },
+  { ing: "doing homework", jpPresent: <><F rb="宿題" rt="しゅくだい" />を しています。</>, jpPast: <><F rb="宿題" rt="しゅくだい" />を していました。</> },
+  { ing: "watching TV", jpPresent: <>テレビを みています。</>, jpPast: <>テレビを みていました。</> },
+  { ing: "eating breakfast", jpPresent: <><F rb="朝ご飯" rt="あさごはん" />を <F rb="食" rt="た" />べています。</>, jpPast: <><F rb="朝ご飯" rt="あさごはん" />を <F rb="食" rt="た" />べていました。</> },
+  { ing: "studying English", jpPresent: <><F rb="英語" rt="えいご" />を <F rb="勉強" rt="べんきょう" />しています。</>, jpPast: <><F rb="英語" rt="えいご" />を <F rb="勉強" rt="べんきょう" />していました。</> },
+];
+const REG_PAIRS = [
+  { base: "play", tail: "soccer", past: "played", jp: (h) => <span>{h}<F rb="サッカー" rt="さっかー" />を しました。</span> },
+  { base: "watch", tail: "TV", past: "watched", jp: (h) => <span>{h}テレビを みました。</span> },
+  { base: "wash", tail: "your hands", past: "washed", jp: (h) => <span>{h}<F rb="手" rt="て" />を <F rb="洗" rt="あら"/>いました。</span> },
+  { base: "talk", tail: "English", past: "talked", jp: (h) => <span>{h}<F rb="英語" rt="えいご" />を <F rb="話" rt="はな"/>しました。</span> },
+  { base: "clean", tail: "my room", past: "cleaned", jp: (h) => <span>{h}へやを <F rb="掃除" rt="そうじ" />しました。</span> },
+  { base: "study", tail: "math", past: "studied", jp: (h) => <span>{h}<F rb="算数" rt="さんすう" />を <F rb="勉強" rt="べんきょう" />しました。</span> },
+  { base: "listen", tail: "to music", past: "listened", jp: (h) => <span>{h}<F rb="音楽" rt="おんがく" />を <F rb="聞" rt="き" />きました。</span> },
+  { base: "use", tail: "a computer", past: "used", jp: (h) => <span>{h}コンピューターを <F rb="使" rt="つか" />いました。</span> },
+];
+const PRESENT_PAIRS = [
+  { v: "play", tail: "soccer", jp: (h) => <span>{h}<F rb="サッカー" rt="さっかー" />を します。</span> },
+  { v: "watch", tail: "TV", jp: (h) => <span>{h}テレビを みます。</span> },
+  { v: "eat", tail: "lunch", jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べます。</span> },
+  { v: "go", tail: "to school", jp: (h) => <span>{h}<F rb="学校" rt="がっこう" />へ <F rb="行" rt="い"/>きます。</span> },
+  { v: "read", tail: "a book", jp: (h) => <span>{h}<F rb="本" rt="ほん" />を <F rb="読" rt="よ"/>みます。</span> },
+  { v: "do", tail: (s) => `${getPossessive(s)} homework`, jp: (h) => <span>{h}<F rb="宿題" rt="しゅくだい" />を します。</span> },
+  { v: "have", tail: "lunch", jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べます。</span> },
+  { v: "study", tail: "English", jp: (h) => <span>{h}<F rb="英語" rt="えいご" />を <F rb="勉強" rt="べんきょう" />します。</span> },
+  { v: "clean", tail: "your room", jp: (h) => <span>{h}へやを <F rb="掃除" rt="そうじ" />します。</span> },
+  { v: "listen", tail: "to music", jp: (h) => <span>{h}<F rb="音楽" rt="おんがく" />を <F rb="聞" rt="き" />きます。</span> },
+  { v: "talk", tail: "with Takeru", jp: (h) => <span>{h}たけるくんと <F rb="話" rt="はな" />します。</span> },
+  { v: "wash", tail: "the car", jp: (h) => <span>{h}<F rb="車" rt="くるま" />を <F rb="洗" rt="あら" />います。</span> },
+];
+const PRESENT_Q_PAIRS = [
+  { v: "play", tail: "soccer", jp: (h) => <span>{h}<F rb="サッカー" rt="さっかー" />を しますか？</span> },
+  { v: "watch", tail: "TV", jp: (h) => <span>{h}テレビを みますか？</span> },
+  { v: "eat", tail: "lunch", jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べますか？</span> },
+  { v: "go", tail: "to school", jp: (h) => <span>{h}<F rb="学校" rt="がっこう" />へ <F rb="行" rt="い"/>きますか？</span> },
+  { v: "read", tail: "a book", jp: (h) => <span>{h}<F rb="本" rt="ほん" />を <F rb="読" rt="よ"/>みますか？</span> },
+  { v: "do", tail: (s) => `${getPossessive(s)} homework`, jp: (h) => <span>{h}<F rb="宿題" rt="しゅくだい" />を しますか？</span> },
+  { v: "have", tail: "lunch", jp: (h) => <span>{h}<F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べますか？</span> },
+  { v: "study", tail: "English", jp: (h) => <span>{h}<F rb="英語" rt="えいご" />を <F rb="勉強" rt="べんきょう" />しますか？</span> },
+  { v: "clean", tail: "your room", jp: (h) => <span>{h}へやを <F rb="掃除" rt="そうじ" />しますか？</span> },
+  { v: "listen", tail: "to music", jp: (h) => <span>{h}<F rb="音楽" rt="おんがく" />を <F rb="聞" rt="き" />きますか？</span> },
+  { v: "talk", tail: "with Takeru", jp: (h) => <span>{h}たけるくんと <F rb="話" rt="はな" />しますか？</span> },
+  { v: "wash", tail: "the car", jp: (h) => <span>{h}<F rb="車" rt="くるま" />を <F rb="洗" rt="あら" />いますか？</span> },
+];
+const wordOrderPairs = [
+  { v: "play", past: "played", tail: "soccer", jp: (<><F rb="サッカー" rt="さっかー" />を しました。</>) },
+  { v: "watch", past: "watched", tail: "TV", jp: (<span>テレビを みました。</span>) },
+  { v: "eat", past: "ate", tail: "lunch", jp: (<><F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べました。</>) },
+  { v: "go", past: "went", tail: "to school", jp: (<><F rb="学校" rt="がっこう" />へ <F rb="行" rt="い"/>きました。</>) },
+  { v: "read", past: "read", tail: "a book", jp: (<><F rb="本" rt="ほん" />を <F rb="読" rt="よ"/>みました。</>) },
+  { v: "see", past: "saw", tail: "a bird", jp: (<><F rb="とり" rt="とり" />を みました。</>) },
+  { v: "clean", past: "cleaned", tail: "my room", jp: (<>へやを <F rb="掃除" rt="そうじ" />しました。</>) },
+  { v: "study", past: "studied", tail: "math", jp: (<><F rb="算数" rt="さんすう" />を <F rb="勉強" rt="べんきょう" />しました。</>) },
+];
+const wordOrderPlaces = ["at home", "in the park", "at school", "at the library", "under the tree"];
+const wordOrderTimes = ["yesterday", "last night", "this morning", "on Sunday"];
+
+const verbForms = {
+  go: { singular: "goes", plural: "go" }, have: { singular: "has", plural: "have" },
+  do: { singular: "does", plural: "do" }, watch: { singular: "watches", plural: "watch" },
+  play: { singular: "plays", plural: "play" }, eat: { singular: "eats", plural: "eat" },
+  read: { singular: "reads", plural: "read" },
+  study: { singular: "studies", plural: "study" }, clean: { singular: "cleans", plural: "clean" },
+  listen: { singular: "listens", plural: "listen" }, talk: { singular: "talks", plural: "talk" },
+  wash: { singular: "washes", plural: "wash" },
+};
+const startsWithVowel = (w) => /^[aeiou]/i.test(w);
+const jpImperativeV = (v) => ({ "Open": <><F rb="あけ" rt="あけ" />て</>, "Close": <><F rb="しめ" rt="しめ" />て</>, "Wash": <><F rb="あら" rt="あら" />って</>, "Bring": <><F rb="もっ" rt="もっ" />てきて</>, "Read": <><F rb="よ" rt="よ" />んで</>, }[v] || v);
+const jpImperativeObj = (o) => ({ "the door": <><F rb="ドア" rt="どあ" />を</>, "your hands": <><F rb="手" rt="て" />を</>, "this book": <><F rb="この本" rt="このほん" />を</>, "the window": <><F rb="まど" rt="まど" />を</>, "your bag": <><F rb="かばん" rt="かばん" />を</>, }[o] || o);
+const jpNounFromWord = (w) => { const base = w.endsWith('s') ? w.slice(0, -1) : w; return ({ bag: <><F rb="かばん" rt="かばん" /></>, car: <><F rb="くるま" rt="くるま" /></>, pen: <><F rb="ペン" rt="ぺん" /></>, book: <><F rb="本" rt="ほん" /></>, cup: <><F rb="コップ" rt="こっぷ" /></>, apple: <><F rb="りんご" rt="りんご" /></>, orange: <>オレンジ</>, egg: <><F rb="たまご" rt="たまご" /></>, }[base]) || base; };
+
+const genBeVerbPresent = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const place = rand(["at home", "at school", "in the park", "at the library"]);
+  const correct = subj === "I" ? "am" : ALL_SINGULAR_SUBJECTS.includes(subj) ? "is" : "are";
+  const en = `${subj} ___ ${place}.`;
+  const choices = ["am", "is", "are", "was"];
+  const jp = (<span>{getJPSubj(subj)} {jpPlaceNi(place)} います。</span>);
+  return { type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+            explainJP: <span><F rb="主語" rt="しゅご"/>によって<F rb="使" rt="つか"/>い<F rb="分" rt="わ"/>けます。<b>I</b>→<b>am</b>, <b>He/She/Taro</b>→<b>is</b>, <b>You/We/They</b>→<b>are</b> です。</span>,
+            speak: en.replace("___", correct), jp };
+};
+const genBeVerbPast = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const place = rand(["at home", "at school", "in the park", "at the library"]);
+  const t = rand(["yesterday", "last night"]);
+  const correct = (subj === "I" || ALL_SINGULAR_SUBJECTS.includes(subj)) ? "was" : "were";
+  const en = `${subj} ___ ${place} ${t}.`;
+  const choices = ["was", "were", "am", "is"];
+  const jp = (<span>{getJPSubj(subj)} {jpTime(t)} {jpPlaceNi(place)} いました。</span>);
+  return { type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+            explainJP: <span><F rb="過去" rt="かこ"/>に「〜でした」と<F rb="言" rt="い"/>うときは was/were を<F rb="使" rt="つか"/>います。<b>I/He/She/Taro</b>→<b>was</b>, <b>You/We/They</b>→<b>were</b> です。</span>,
+            speak: en.replace("___", correct), jp };
+};
+const genPreposition = () => {
+  const s = rand(prepoScenes);
+  const subj = rand(["The ball", "The cat", "The book", "The picture"]);
+  const choices = ["in", "on", "under", "next to", "behind", "near", "in front of", "between"];
+  const blank = s.key;
+  const en = `${subj} is ___ ${s.en.replace(s.key + ' ', '')}.`;
+  const subjJP = subj === 'The ball' ? <><F rb="ボール" rt="ぼーる" /></> : subj === 'The cat' ? <><F rb="ねこ" rt="ねこ" /></> : subj === 'The book' ? <><F rb="本" rt="ほん" /></> : <><F rb="絵" rt="え" /></>;
+  const verbJP = subj === 'The cat' ? 'います' : 'あります';
+  const jp = (<span>{subjJP} は {jpPlace(s.en)} {verbJP}。</span>);
+  return {
+    type: "choice", en, 
+    choices: [blank, ...choices],
+    answerIndex: -1,
+    correctAnswerText: blank,
+    explainJP: <span><b><F rb="場所" rt="ばしょ"/></b>を<F rb="表" rt="あらわ"/>すことばです。<code>in</code>は「<F rb="中" rt="なか"/>に」、<code>on</code>は「<F rb="上" rt="うえ"/>に」、<code>under</code>は「<F rb="下" rt="した"/>に」という<F rb="意味" rt="いみ"/>です。</span>,
+    speak: en.replace('___', blank), jp,
+  };
+};
+const genThere = () => {
+  const nouns = ["apple", "egg", "orange", "umbrella", "book", "bag", "cat", "dog"];
+  const places = ["at home", "in the park", "at school", "on the desk", "under the table", "next to the chair", "in the box"];
+  const n = Math.random() < 0.6 ? 1 : (Math.floor(Math.random() * 3) + 2);
+  const noun = rand(nouns);
+  const place = rand(places);
+  const be = n === 1 ? "is" : "are";
+  const art = n === 1 ? (startsWithVowel(noun) ? "an" : "a") : String(n);
+  const en = `There ___ ${n === 1 ? art : n} ${n === 1 ? noun : noun + 's'} ${place}.`;
+  const choices = ["is", "are", "am", "be"];
+  const isAnimal = noun === 'cat' || noun === 'dog';
+  const jp = (<span>{jpPlace(place)} に {nounJP(noun)} が {n === 1 ? '' : <>{n}<F rb="個" rt="こ" /> </>}{isAnimal ? 'います' : 'あります'}。</span>);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: be,
+    explainJP: <span>「〜があります・います」という<F rb="文" rt="ぶん"/>です。<b><F rb="一" rt="ひと"/>つ</b>のときは <code>is</code>、<b><F rb="二" rt="ふた"/>つ<F rb="以上" rt="いじょう"/></b>のときは <code>are</code> を<F rb="使" rt="つか"/>います。</span>,
+    speak: `There ${be} ${n === 1 ? art : n} ${n === 1 ? noun : noun + 's'} ${place}.`, jp,
+  };
+};
+const genDid = () => {
+  const subj = rand(ALL_Q_SUBJECTS.filter(s => s !== 'we'));
+  const pair = rand(DID_PAIRS);
+  const t = rand(["yesterday", "last night"]);
+  const tailText = typeof pair.tail === 'function' ? pair.tail(subj) : pair.tail;
+  const en = `Did ${subj} ___ ${tailText} ${t}?`;
+  const choices = [pair.v, pair.v + "s", pair.v + "ed", rand(["went", "ate", "did", "saw"])];
+  const jpHead = <>{getJPSubj(subj)} {jpTime(t)} </>;
+  const jp = pair.jp(jpHead);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: pair.v,
+    explainJP: <span>「〜しましたか？」と<F rb="過去" rt="かこ"/>の<F rb="質問" rt="しつもん"/>をするとき、<F rb="文" rt="ぶん"/>の<F rb="最初" rt="さいしょ"/>に <code>Did</code> を<F rb="置" rt="お"/>いたら、<F rb="動詞" rt="どうし"/>は<b><F rb="元" rt="もと"/>の<F rb="形" rt="かたち"/>（<F rb="原形" rt="げんけい"/>）</b>に<F rb="戻" rt="もど"/>ります。</span>,
+    speak: `Did ${subj} ${pair.v} ${tailText} ${t}?`, jp,
+  };
+};
+const genImperative = () => {
+  const COMPAT = { Open: ["the door", "the window"], Close: ["the door", "the window"], Wash: ["your hands"], Bring: ["your bag", "this book"], Read: ["this book"], };
+  const verbs = Object.keys(COMPAT);
+  const v = rand(verbs);
+  const o = rand(COMPAT[v]);
+  const ans = [v, o, "!"];
+  const jp = (<span>{jpImperativeObj(o)} {jpImperativeV(v)}。</span>);
+  return {
+    type: "arrange", tokens: ans, answer: ans, correctAnswerText: ans.join(' '),
+    explainJP: <span>「〜しなさい」という<F rb="命令" rt="めいれい"/>の<F rb="文" rt="ぶん"/>は、<b><F rb="動詞" rt="どうし"/></b>から<F rb="始" rt="はじ"/>まります。</span>,
+    speak: `${v} ${o}!`, jp,
+  };
+};
+const genDemonstratives = () => {
+  const near = Math.random() < 0.5;
+  const plural = Math.random() < 0.5;
+  const word = rand(["bag", "car", "pen", "book", "cup", "apple", "orange", "egg"]);
+  const hint = near ? "(here)" : "(over there)";
+  const correct = plural ? (near ? "These" : "Those") : (near ? "This" : "That");
+  const tail = plural ? `${word}s` : (startsWithVowel(word) ? `an ${word}` : `a ${word}`);
+  const choices = ["This", "That", "These", "Those"];
+  const en = `___ ${plural ? "are" : "is"} ${tail} ${hint}.`;
+  const nounJ = jpNounFromWord(tail);
+  const jpPronoun = near ? (plural ? "これら" : "これ") : (plural ? "あれら" : "あれ");
+  const jp = (<span>{near ? '(ここにある)' : '(あそこにある)'} {jpPronoun} は {nounJ} です。</span>);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+    explainJP: <span><b><F rb="近" rt="ちか"/>いもの</b>は <code>this</code> (<F rb="一" rt="ひと"/>つ) / <code>these</code> (たくさん)、<b><F rb="遠" rt="とお"/>いもの</b>は <code>that</code> (<F rb="一" rt="ひと"/>つ) / <code>those</code> (たくさん) を<F rb="使" rt="つか"/>います。</span>,
+    speak: `${correct} ${plural ? "are" : "is"} ${tail}.`, jp,
+  };
+};
+const genBeQuestion = () => {
+  const subj = rand(BE_Q_SUBJECTS);
+  const place = rand(["at home", "at school", "in the park"]);
+  const correct = subj === "I" ? "Am" : (["he", "she", "Taro", "Hanako"].includes(subj) ? "Is" : "Are");
+  const en = `___ ${subj} ${place}?`;
+  const choices = ["Am", "Is", "Are"];
+  const jp = (<span>{getJPSubj(subj)} {jpPlaceNi(place)} いますか？</span>);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+    explainJP: <span>be<F rb="動詞" rt="どうし"/>の<F rb="質問" rt="しつもん"/>は <code>Am</code>/<code>Is</code>/<code>Are</code> で<F rb="始" rt="はじ"/>めます。<F rb="主語" rt="しゅご"/>が <b>I</b>→Am, <b>He/She/Taro</b>→Is, <b>You/We/They</b>→Are です。</span>,
+    speak: `${correct} ${subj} ${place}?`, jp,
+  };
+};
+const genProgressive = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const isPast = Math.random() < 0.5;
+  const act = rand(progressiveActs);
+  if (isPast) {
+    const t = rand(["yesterday", "last night"]);
+    const correct = (subj === "I" || ALL_SINGULAR_SUBJECTS.includes(subj)) ? "was" : "were";
+    const en = `${subj} ___ ${act.ing} ${t}.`;
+    const choices = ["was", "were", "is", "am"];
+    const jp = (<span>{getJPSubj(subj)} {jpTime(t)} {act.jpPast}</span>);
+    return {
+      type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+      explainJP: <span><F rb="過去" rt="かこ"/>に「〜していました」と<F rb="言" rt="い"/>うときは <code>was</code> / <code>were</code> を<F rb="使" rt="つか"/>います。<b>I/He/She/Taro</b>→was, <b>You/We/They</b>→were です。</span>,
+      speak: en.replace("___", correct), jp,
+    };
+  } else {
+    const correct = subj === "I" ? "am" : ALL_SINGULAR_SUBJECTS.includes(subj) ? "is" : "are";
+    const en = `${subj} ___ ${act.ing}.`;
+    const choices = ["am", "is", "are", "was"];
+    const jp = (<span>{getJPSubj(subj)} {act.jpPresent}</span>);
+    return {
+      type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+      explainJP: <span><F rb="今" rt="いま"/>「〜しています」と<F rb="言" rt="い"/>うときは <code>am</code> / <code>is</code> / <code>are</code> を<F rb="使" rt="つか"/>います。<b>I</b>→am, <b>He/She/Taro</b>→is, <b>You/We/They</b>→are です。</span>,
+      speak: en.replace("___", correct), jp,
+    };
+  }
+};
+const genVerbPastIrreg = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const t = rand(["yesterday", "last night"]);
+  const v = rand([
+      { base: "go", past: "went", tail: "to school", jp: (<><F rb="学校" rt="がっこう" />へ <F rb="行" rt="い"/>きました。</>) },
+      { base: "eat", past: "ate", tail: "lunch", jp: (<><F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た"/>べました。</>) },
+      { base: "see", past: "saw", tail: "a bird", jp: (<><F rb="とり" rt="とり" />を みました。</>) },
+      { base: "read", past: "read", tail: "a book", jp: (<><F rb="本" rt="ほん" />を <F rb="読" rt="よ"/>みました。</>) },
+      { base: "have", past: "had", tail: "lunch", jp: (<><F rb="昼ご飯" rt="ひるごはん" />を <F rb="食" rt="た" />べました。</>) },
+      { base: "do", past: "did", tail: (s) => `${getPossessive(s)} homework`, jp: (<><F rb="宿題" rt="しゅくだい" />を しました。</>) },
+      { base: "make", past: "made", tail: "a cake", jp: (<>ケーキを <F rb="作" rt="つく" />りました。</>) },
+      { base: "get", past: "got", tail: "a present", jp: (<>プレゼントを もらいました。</>) },
+  ]);
+  const tailText = typeof v.tail === 'function' ? v.tail(subj) : v.tail;
+  const en = `${subj} ___ ${tailText} ${t}.`;
+  const choices = [v.past, v.base + "ed", v.base, v.past + "ed"];
+  const jp = (<span>{getJPSubj(subj)} {jpTime(t)} {v.jp}</span>);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: v.past,
+    explainJP: <span><F rb="動詞" rt="どうし"/>の<F rb="中" rt="なか"/>には、<F rb="過去" rt="かこ"/>の<F rb="形" rt="かたち"/>が <b>ed</b> ではない<F rb="特別" rt="とくべつ"/>な<F rb="形" rt="かたち"/>に<F rb="変" rt="か"/>わるものがあります (<F rb="例" rt="れい"/>: go → went)。これを<b><F rb="不規則動詞" rt="ふきそくどうし"/></b>といいます。</span>,
+    speak: en.replace('___', v.past), jp,
+  };
+};
+const genVerbPastReg = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const pair = rand(REG_PAIRS);
+  const t = rand(["yesterday", "last night"]);
+  const en = `${subj} ___ ${pair.tail} ${t}.`;
+  const choices = [pair.past, pair.base, pair.base + "s", pair.base + "ing"];
+  const jp = (<span>{getJPSubj(subj)} {jpTime(t)} {pair.jp('')}</span>);
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: pair.past,
+    explainJP: <span><F rb="過去" rt="かこ"/>に「〜しました」と<F rb="言" rt="い"/>うとき、<F rb="多" rt="おお"/>くの<F rb="動詞" rt="どうし"/>はうしろに <b>ed</b> を<F rb="付" rt="つ"/>けます。これを<b><F rb="規則動詞" rt="きそくどうし"/></b>といいます。</span>,
+    speak: en.replace('___', pair.past), jp,
+  };
+};
+const genVerbPresent = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const pair = rand(PRESENT_PAIRS);
+  const tailText = typeof pair.tail === 'function' ? pair.tail(subj) : pair.tail;
+  const en = `${subj} ___ ${tailText}.`;
+  const correctForm = ALL_SINGULAR_SUBJECTS.includes(subj) ? (verbForms[pair.v]?.singular ?? (pair.v + "s")) : (verbForms[pair.v]?.plural ?? pair.v);
+  const choices = [correctForm, pair.v + "ed", verbForms[pair.v]?.plural ?? pair.v, verbForms[pair.v]?.singular ?? (pair.v + "s")];
+  const jp = pair.jp(getJPSubj(subj));
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: correctForm,
+    explainJP: <span><F rb="主語" rt="しゅご"/>が <b>He / She / Taro</b> のとき、<F rb="動詞" rt="どうし"/>に <b>s</b> や <b>es</b> を<F rb="付" rt="つ"/>けます (<F rb="例" rt="れい"/>: play→plays, go→goes)。これを<F rb="三単現" rt="さんたんげん"/>のsといいます。</span>,
+    speak: en.replace('___', correctForm), jp,
+  };
+};
+const genPresentQuestion = () => {
+  const subj = rand(ALL_Q_SUBJECTS);
+  const pair = rand(PRESENT_Q_PAIRS);
+  const tailText = typeof pair.tail === 'function' ? pair.tail(subj) : pair.tail;
+  const en = `___ ${subj} ${pair.v} ${tailText}?`;
+  const choices = ["Do", "Does", "Did", "Is"];
+  const correct = ALL_SINGULAR_SUBJECTS.map(s => s.toLowerCase()).includes(subj) ? "Does" : "Do";
+  const jp = pair.jp(getJPSubj(subj));
+  return {
+    type: "choice", en, choices, answerIndex: -1, correctAnswerText: correct,
+    explainJP: <span><F rb="質問" rt="しつもん"/>の<F rb="文" rt="ぶん"/>で、<F rb="主語" rt="しゅご"/>が <b>He / She / Taro</b> なら <code>Does</code>、その<F rb="他" rt="ほか"/>は <code>Do</code> から<F rb="始" rt="はじ"/>めます。</span>,
+    speak: `${correct} ${subj} ${pair.v} ${tailText}?`, jp,
+  };
+};
+const genWordOrder = () => {
+  const subj = rand(ALL_SUBJECTS);
+  const pair = rand(wordOrderPairs);
+  const place = rand(wordOrderPlaces);
+  const t = rand(wordOrderTimes);
+  const ans = [subj, pair.past, pair.tail, place, t, "."];
+  const jp = (<span>{getJPSubj(subj)} {jpTime(t)} {jpPlace(place)} {pair.jp}</span>);
+  return {
+    type: "arrange", tokens: ans, answer: ans, correctAnswerText: ans.join(' '),
+    explainJP: <span><F rb="英語" rt="えいご"/>の<F rb="文" rt="ぶん"/>は、<F rb="普通" rt="ふつう"/> [<F rb="誰" rt="だれ"/>が]→[<F rb="何" rt="なに"/>する]→[<F rb="何" rt="なに"/>を]→[どこで]→[いつ] の<F rb="順番" rt="じゅんばん"/>に<F rb="並" rt="なら"/>べます。</span>,
+    speak: ans.join(' '), jp,
+  };
+};
+
+const LESSONS = [
+  { id: "be-verb", name: <><F rb="be動詞" rt="びーどうし" />（<F rb="現在" rt="げんざい" />） am/is/are</>,
+    generator: genBeVerbPresent,
+  },
+  { id: "be-question", name: <><F rb="be動詞" rt="びーどうし" />の<F rb="疑問文" rt="ぎもんぶん" /></>, generator: genBeQuestion },
+  { id: "verb-present", name: <><F rb="一般動詞" rt="いっぱんどうし" />（<F rb="現在形" rt="げんざいけい" />）</>, generator: genVerbPresent },
+  { id: "present-q", name: <><F rb="一般動詞" rt="いっぱんどうし" />の<F rb="疑問文" rt="ぎもんぶん" /> (Do/Does)</>, generator: genPresentQuestion },
+  { id: "be-verb-past", name: <><F rb="be動詞" rt="びーどうし" />（<F rb="過去" rt="かこ" />） was/were</>,
+    generator: genBeVerbPast,
+  },
+  { id: "verb-past-reg", name: <><F rb="一般動詞" rt="いっぱんどうし" />の<F rb="過去" rt="かこ" />（<F rb="規則変化" rt="きそくへんか" />）</>, generator: genVerbPastReg },
+  { id: "verb-past-irregular", name: <><F rb="一般動詞" rt="いっぱんどうし" />の<F rb="過去" rt="かこ" />（<F rb="不規則" rt="ふきそく" />）</>, generator: genVerbPastIrreg },
+  { id: "progressive", name: <><F rb="進行形" rt="しんこうけい" />（<F rb="現在" rt="げんざい" />/<F rb="過去" rt="かこ" />）</>, generator: genProgressive },
+  { id: "word-order", name: <><F rb="語順" rt="ごじゅん" /><F rb="並" rt="なら" />べ<F rb="替" rt="か" />え</>, generator: genWordOrder },
+  { id: "imperative", name: <><F rb="命令文" rt="めいれいぶん" />（<F rb="並" rt="なら" />べ<F rb="替" rt="か" />え）</>, generator: genImperative },
+  { id: "preposition", name: <><F rb="前置詞" rt="ぜんちし" /> in/on/under…</>, generator: genPreposition },
+  { id: "there-is-are", name: <>There is / There are</>, generator: genThere },
+  { id: "demonstratives", name: <>this/that/these/those</>, generator: genDemonstratives },
+  { id: "did-q", name: <>Did の<F rb="疑問文" rt="ぎもんぶん" /></>, generator: genDid },
+  {
+    id: "mixed-verbs-1",
+    name: <><F rb="ふくごう問題" rt="ふくごうもんだい" /> (いろいろな<F rb="動詞" rt="どうし" />)</>,
+    generator: () => {
+      const gens = [
+        genBeVerbPresent,
+        genBeVerbPast,
+        genVerbPresent,
+        genVerbPastReg,
+        genVerbPastIrreg,
+        genProgressive,
+        genBeQuestion,
+        genPresentQuestion,
+        genDid,
+      ];
+      const gen = rand(gens);
+      return gen();
+    }
+  }
+];
+
+// (v5.8 修正1: v5.1で追加し、v5.2以降で欠落していたカード定義を再追加)
+// ===== ガチャ・カードデータ =====
+// (v6.2 修正4: カードを100種類に倍増)
+
+// (v6.3 修正1: 'const CARDS' の重複定義エラーを修正するため、古い定義を削除)
+/*
+const CARDS = [
+  // N (Normal) - 20種類
+  { id: "cat_n", name: "ねこ", emoji: '🐱', rarity: 'N' },
+  ... (中略) ...
+  { id: "black_hole_l", name: "ブラックホール", emoji: '⚫', rarity: 'L' }, // 20
+];
+*/
+
+// (v6.2 修正4: 絵文字の重複を調整)
+// L: griffin_l -> 🦁 (lion_r とかぶる) -> 🦅 (eagle_ssr とかぶる) -> 🪽 (wing)
+// L: kraken_l -> 🐙 (octopus_ssr とかぶる) -> 🦑 (squid_ssr とかぶる) -> 🌊 (wave)
+// SSR: ladybug_ssr -> 🐞 (insect_n とかぶる) -> 🐞 (そのまま)
+// SSR: walrus_ssr -> 🦭 (seal_ssr とかぶる) -> 🦭 (そのまま)
+// SSR: reindeer_ssr -> 🦌 (deer_sr とかぶる) -> 🦌 (そのまま)
+// SSR: moose_ssr -> 🦌 (deer_sr とかぶる) -> 🦌 (そのまま)
+const CARDS_V6_2 = [
+  // N (Normal) - 20種類
+  { id: "cat_n", name: "ねこ", emoji: '🐱', rarity: 'N' },
+  { id: "dog_n", name: "いぬ", emoji: '🐶', rarity: 'N' },
+  { id: "mouse_n", name: "ねずみ", emoji: '🐭', rarity: 'N' },
+  { id: "hamster_n", name: "ハムスター", emoji: '🐹', rarity: 'N' },
+  { id: "rabbit_n", name: "うさぎ", emoji: '🐰', rarity: 'N' },
+  { id: "chick_n", name: "ひよこ", emoji: '🐤', rarity: 'N' },
+  { id: "frog_n", name: "かえる", emoji: '🐸', rarity: 'N' },
+  { id: "pig_n", name: "ぶた", emoji: '🐷', rarity: 'N' },
+  { id: "bee_n", name: "はち", emoji: '🐝', rarity: 'N' },
+  { id: "ant_n", name: "あり", emoji: '🐜', rarity: 'N' },
+  { id: "insect_n", name: "こんちゅう", emoji: '🐞', rarity: 'N' }, // 11
+  { id: "fish_n", name: "さかな", emoji: '🐟', rarity: 'N' },
+  { id: "bird_n", name: "とり", emoji: '🐦', rarity: 'N' },
+  { id: "shell_n", name: "かいがら", emoji: '🐚', rarity: 'N' },
+  { id: "tree_n", name: "き", emoji: '🌳', rarity: 'N' },
+  { id: "flower_n", name: "はな", emoji: '🌸', rarity: 'N' },
+  { id: "star_n", name: "ほし", emoji: '⭐', rarity: 'N' },
+  { id: "moon_n", name: "つき", emoji: '🌙', rarity: 'N' },
+  { id: "sun_n", name: "たいよう", emoji: '☀️', rarity: 'N' },
+  { id: "cloud_n", name: "くも", emoji: '☁️', rarity: 'N' }, // 20
+
+  // R (Rare) - 20種類
+  { id: "fox_r", name: "きつね", emoji: '🦊', rarity: 'R' },
+  { id: "bear_r", name: "くま", emoji: '🐻', rarity: 'R' },
+  { id: "panda_r", name: "パンダ", emoji: '🐼', rarity: 'R' },
+  { id: "koala_r", name: "コアラ", emoji: '🐨', rarity: 'R' },
+  { id: "tiger_r", name: "とら", emoji: '🐯', rarity: 'R' },
+  { id: "lion_r", name: "ライオン", emoji: '🦁', rarity: 'R' },
+  { id: "cow_r", name: "うし", emoji: '🐮', rarity: 'R' },
+  { id: "monkey_r", name: "さる", emoji: '🐵', rarity: 'R' },
+  { id: "owl_r", name: "ふくろう", emoji: '🦉', rarity: 'R' },
+  { id: "penguin_r", name: "ペンギン", emoji: '🐧', rarity: 'R' },
+  { id: "squirrel_r", name: "リス", emoji: '🐿️', rarity: 'R' }, // 11
+  { id: "raccoon_r", name: "アライグマ", emoji: '🦝', rarity: 'R' },
+  { id: "skunk_r", name: "スカンク", emoji: '🦨', rarity: 'R' },
+  { id: "badger_r", name: "アナグマ", emoji: '🦡', rarity: 'R' },
+  { id: "otter_r", name: "カワウソ", emoji: '🦦', rarity: 'R' },
+  { id: "beaver_r", name: "ビーバー", emoji: '🦫', rarity: 'R' },
+  { id: "duck_r", name: "アヒル", emoji: '🦆', rarity: 'R' },
+  { id: "swan_r", name: "はくちょう", emoji: '🦢', rarity: 'R' },
+  { id: "rooster_r", name: "オンドリ", emoji: '🐔', rarity: 'R' },
+  { id: "sheep_r", name: "ひつじ", emoji: '🐑', rarity: 'R' }, // 20
+
+  // SR (Super Rare) - 20種類
+  { id: "wolf_sr", name: "おおかみ", emoji: '🐺', rarity: 'SR' },
+  { id: "boar_sr", name: "いのしし", emoji: '🐗', rarity: 'SR' },
+  { id: "horse_sr", name: "うま", emoji: '🐴', rarity: 'SR' },
+  { id: "zebra_sr", name: "しまうま", emoji: '🦓', rarity: 'SR' },
+  { id: "deer_sr", name: "しか", emoji: '🦌', rarity: 'SR' },
+  { id: "giraffe_sr", name: "きりん", emoji: '🦒', rarity: 'SR' },
+  { id: "elephant_sr", name: "ぞう", emoji: '🐘', rarity: 'SR' },
+  { id: "rhino_sr", name: "さい", emoji: '🦏', rarity: 'SR' },
+  { id: "hippo_sr", name: "かば", emoji: '🦛', rarity: 'SR' },
+  { id: "camel_sr", name: "らくだ", emoji: '🐪', rarity: 'SR' },
+  { id: "kangaroo_sr", name: "カンガルー", emoji: '🦘', rarity: 'SR' }, // 11
+  { id: "crocodile_sr", name: "ワニ", emoji: '🐊', rarity: 'SR' },
+  { id: "snake_sr", name: "ヘビ", emoji: '🐍', rarity: 'SR' },
+  { id: "lizard_sr", name: "トカゲ", emoji: '🦎', rarity: 'SR' },
+  { id: "turtle_sr", name: "カメ", emoji: '🐢', rarity: 'SR' },
+  { id: "sloth_sr", name: "ナマケモノ", emoji: '🦥', rarity: 'SR' },
+  { id: "peacock_sr", name: "クジャク", emoji: '🦚', rarity: 'SR' },
+  { id: "parrot_sr", name: "オウム", emoji: '🦜', rarity: 'SR' },
+  { id: "flamingo_sr", name: "フラミンゴ", emoji: '🦩', rarity: 'SR' },
+  { id: "badminton_sr", name: "バドミントン", emoji: '🏸', rarity: 'SR' }, // 20 (オオハシの代わりに)
+
+  // SSR (Super Super Rare) - 20種類
+  { id: "dolphin_ssr", name: "いるか", emoji: '🐬', rarity: 'SSR' },
+  { id: "whale_ssr", name: "くじら", emoji: '🐳', rarity: 'SSR' },
+  { id: "shark_ssr", name: "さめ", emoji: '🦈', rarity: 'SSR' },
+  { id: "octopus_ssr", name: "たこ", emoji: '🐙', rarity: 'SSR' },
+  { id: "squid_ssr", name: "いか", emoji: '🦑', rarity: 'SSR' },
+  { id: "crab_ssr", name: "かに", emoji: '🦀', rarity: 'SSR' },
+  { id: "shrimp_ssr", name: "えび", emoji: '🦐', rarity: 'SSR' },
+  { id: "eagle_ssr", name: "わし", emoji: '🦅', rarity: 'SSR' },
+  { id: "bat_ssr", name: "こうもり", emoji: '🦇', rarity: 'SSR' },
+  { id: "gorilla_ssr", name: "ゴリラ", emoji: '🦍', rarity: 'SSR' },
+  { id: "scorpion_ssr", name: "サソリ", emoji: '🦂', rarity: 'SSR' }, // 11
+  { id: "spider_ssr", name: "クモ", emoji: '🕷️', rarity: 'SSR' },
+  { id: "butterfly_ssr", name: "チョウ", emoji: '🦋', rarity: 'SSR' },
+  { id: "seal_ssr", name: "アザラシ", emoji: '🦭', rarity: 'SSR' },
+  { id: "polar_bear_ssr", name: "シロクマ", emoji: '🐻‍❄️', rarity: 'SSR' },
+  { id: "bison_ssr", name: "バイソン", emoji: '🐃', rarity: 'SSR' },
+  { id: "mammoth_ssr", name: "マンモス", emoji: '🐘', rarity: 'SSR' }, // (ぞうとかぶる) -> 🦣
+  { id: "dodo_ssr", name: "ドードー", emoji: '🦤', rarity: 'SSR' },
+  { id: "kiwi_ssr", name: "キーウィ", emoji: '🥝', rarity: 'SSR' }, // (果物) -> 🐦
+  { id: "mouse_trap_ssr", name: "ねずみとり", emoji: '🪤', rarity: 'SSR' }, // 20
+  
+  // L (Legendary) - 20種類
+  { id: "t_rex_l", name: "ティラノサウルス", emoji: '🦖', rarity: 'L' },
+  { id: "sauropod_l", name: "ブラキオサウルス", emoji: '🦕', rarity: 'L' },
+  { id: "dragon_l", name: "ドラゴン", emoji: '🐉', rarity: 'L' },
+  { id: "unicorn_l", name: "ユニコーン", emoji: '🦄', rarity: 'L' },
+  { id: "comet_l", name: "すいせい", emoji: '☄️', rarity: 'L' },
+  { id: "alien_l", name: "うちゅうじん", emoji: '👽', rarity: 'L' },
+  { id: "robot_l", name: "ロボット", emoji: '🤖', rarity: 'L' },
+  { id: "ghost_l", name: "おばけ", emoji: '👻', rarity: 'L' },
+  { id: "volcano_l", name: "かざん", emoji: '🌋', rarity: 'L' },
+  { id: "galaxy_l", name: "ぎんが", emoji: '🌌', rarity: 'L' },
+  { id: "phoenix_l", name: "フェニックス", emoji: '🔥', rarity: 'L' }, // 11
+  { id: "hydra_l", name: "ヒドラ", emoji: '🐲', rarity: 'L' },
+  { id: "pegasus_l", name: "ペガサス", emoji: '🐎', rarity: 'L' },
+  { id: "cerberus_l", name: "ケルベロス", emoji: '🐕', rarity: 'L' },
+  { id: "ninja_l", name: "ニンジャ", emoji: '🥷', rarity: 'L' },
+  { id: "samurai_l", name: "サムライ", emoji: '⚔️', rarity: 'L' },
+  { id: "ufo_l", name: "UFO", emoji: '🛸', rarity: 'L' },
+  { id: "black_hole_l", name: "ブラックホール", emoji: '⚫', rarity: 'L' },
+  { id: "griffin_l", name: "グリフォン", emoji: '🪽', rarity: 'L' },
+  { id: "kraken_l", name: "クラーケン", emoji: '🌊', rarity: 'L' }, // 20
+];
+
+// ガチャの重み付け (合計100)
+const RARITY_WEIGHTS = {
+    'N': 45, // 45%
+    'R': 30, // 30%
+    'SR': 15, // 15%
+    'SSR': 7,  // 7%
+    'L': 3   // 3%
+};
+// レアリティの並び順
+const RARITY_LEVELS = { 'N': 1, 'R': 2, 'SR': 3, 'SSR': 4, 'L': 5 };
+// (v5.8 修正1 ここまで)
+
+
+const initialLessonStats = () => ({ correct: 0, streak: 0, streakMax: 0, titles: [] });
+
+// ===== メインアプリコンポーネント =====
+function App() {
+  const [lessonId, setLessonId] = useState(LESSONS[0].id);
+  const [currentQ, setCurrentQ] = useState(null);
+  const [choiceShuffle, setChoiceShuffle] = useState([]);
+  const [arrangeChoices, setArrangeChoices] = useState([]);
+  const [selectedIndex, setSelectedIndex] = useState(null);
+  const [isCorrect, setIsCorrect] = useState(null);
+  const [arrPicked, setArrPicked] = useState([]);
+
+  const [coins, setCoins] = useState(0);
+  const [coinDelta, setCoinDelta] = useState(0);
+  const [dailyStats, setDailyStats] = useState({});
+  const [showFuri, setShowFuri] = useState(true);
+  const [stats, setStats] = useState({ totalCorrect: 0, globalStreakMax: 0, perLessonStats: {} });
+  const [globalStreak, setGlobalStreak] = useState(0);
+
+  const [titlesUnlocked, setTitlesUnlocked] = useState([]);
+  const [activeTitle, setActiveTitle] = useState("start");
+  
+  const [ownedCards, setOwnedCards] = useState(["cat_n"]);
+  const [gachaPulls, setGachaPulls] = useState(0);
+  const [showGachaResult, setShowGachaResult] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showTitleInfo, setShowTitleInfo] = useState(false);
+  const [showLessonTitleInfo, setShowLessonTitleInfo] = useState(false);
+  const [showHint, setShowHint] = useState(false);
+
+  const prevCoinsRef = useRef(0);
+  const fileInputRef = useRef(null);
+  const recentKeysRef = useRef({});
+
+  const activePerk = useMemo(() => activeTitle ? (TITLE_PERKS[activeTitle] || {}) : {}, [activeTitle]);
+  const currentLessonStats = useMemo(() => stats.perLessonStats[lessonId] || initialLessonStats(), [stats, lessonId]);
+
+  // ====== 保存・読み込み ======
+  useEffect(() => {
+    try {
+      const saved = typeof window !== "undefined" ? localStorage.getItem(LS_KEY) : null;
+      if (saved) {
+        const d = JSON.parse(saved);
+        setCoins(d.coins ?? 0);
+        setShowFuri(d.showFuri ?? true);
+        setStats(d.stats ?? { totalCorrect: 0, globalStreakMax: 0, perLessonStats: {} });
+        setOwnedCards(d.ownedCards ?? ["cat_n"]);
+        setGachaPulls(d.gachaPulls ?? 0);
+        setTitlesUnlocked(d.titlesUnlocked ?? []);
+        setActiveTitle(d.activeTitle ?? "start");
+        setDailyStats(d.dailyStats ?? {});
+        if (d.lessonId) setLessonId(d.lessonId);
+      }
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (typeof window === "undefined") return;
+      localStorage.setItem(LS_KEY, JSON.stringify({ coins, showFuri, stats, ownedCards, gachaPulls, titlesUnlocked, activeTitle, lessonId, dailyStats }));
+    } catch {}
+  }, [coins, showFuri, stats, ownedCards, gachaPulls, titlesUnlocked, activeTitle, lessonId, dailyStats]);
+
+  // ポイント増加の演出
+  useEffect(() => {
+    const delta = coins - (prevCoinsRef.current || 0);
+    if (delta > 0) {
+      setCoinDelta(delta);
+      setTimeout(() => setCoinDelta(0), 1100);
+    }
+    prevCoinsRef.current = coins;
+  }, [coins]);
+
+  const nextQuestion = useCallback(() => {
+    const lesson = LESSONS.find((l) => l.id === lessonId);
+    if (!lesson || !lesson.generator) return;
+
+    let q;
+    let key;
+    let attempts = 0;
+    const currentLessonRecentKeys = recentKeysRef.current[lessonId] || [];
+
+    do {
+      q = lesson.generator();
+      key = q.en ? q.en : (q.tokens ? q.tokens.join(" ") : Math.random().toString());
+      attempts++;
+    } while (currentLessonRecentKeys.includes(key) && attempts < 12);
+
+    const updatedRecentKeys = [...currentLessonRecentKeys, key];
+    if (updatedRecentKeys.length > 10) updatedRecentKeys.shift();
+    recentKeysRef.current[lessonId] = updatedRecentKeys;
+
+    setCurrentQ(q);
+    setSelectedIndex(null);
+    setIsCorrect(null);
+    setArrPicked([]);
+    setShowHint(false);
+    if (q.type === "choice") setChoiceShuffle(ensureFourChoices(q.choices));
+    if (q.type === "arrange") setArrangeChoices(shuffle(q.tokens));
+  }, [lessonId]);
+
+  useEffect(() => {
+    nextQuestion();
+  }, [lessonId, nextQuestion]); 
+
+  const onCorrect = useCallback((speakText) => {
+    const points = 5;
+    const newCoins = coins + points;
+
+    setCoins(newCoins);
+    const oldThreshold = Math.floor(coins / 200);
+    const newThreshold = Math.floor(newCoins / 200);
+    if (newThreshold > oldThreshold) {
+        setGachaPulls(p => p + (newThreshold - oldThreshold));
+    }
+
+    const newGlobalStreak = globalStreak + 1;
+    setGlobalStreak(newGlobalStreak);
+    
+    const today = getTodayString();
+    setDailyStats(ds => ({ ...ds, [today]: (ds[today] || 0) + points }));
+
+    setStats(st => {
+      const lessonStats = st.perLessonStats[lessonId] || initialLessonStats();
+      const newLessonStreak = lessonStats.streak + 1;
+      const updatedLessonStats = {
+          ...lessonStats,
+          correct: lessonStats.correct + 1,
+          streak: newLessonStreak,
+          streakMax: Math.max(lessonStats.streakMax, newLessonStreak),
+      };
+
+      const newlyUnlockedLessonTitles = [];
+      const currentTitles = updatedLessonStats.titles;
+      const potentialTitles = [...currentTitles];
+
+      LESSON_TITLES.forEach(title => {
+          if (!potentialTitles.includes(title.id) && title.condition({ ...updatedLessonStats, titles: potentialTitles })) {
+              newlyUnlockedLessonTitles.push(title.id);
+              potentialTitles.push(title.id);
+          }
+      });
+      
+      if (newlyUnlockedLessonTitles.length > 0) {
+          updatedLessonStats.titles = potentialTitles;
+      }
+
+      const newStats = {
+        ...st,
+        totalCorrect: st.totalCorrect + 1,
+        globalStreakMax: Math.max(st.globalStreakMax, newGlobalStreak),
+        perLessonStats: { ...st.perLessonStats, [lessonId]: updatedLessonStats },
+      };
+
+      setTitlesUnlocked(t => {
+          const newly = [];
+          const add = (id) => { if (!t.includes(id) && !newly.includes(id)) newly.push(id); };
+          if (newStats.totalCorrect >= 5) add("start");
+          if (newGlobalStreak >= 5) add("streak5");
+          if (newCoins >= 1000) add("coin1000");
+          if (newCoins >= 5000) add("lionHero");
+          if (newCoins >= 10000) add("coin10000");
+          if (newCoins >= 20000) add("coin20000");
+          if ((newStats.perLessonStats["be-verb"]?.correct ?? 0) >= 5) add("owlGuide");
+          const kinds = Object.keys(newStats.perLessonStats).filter((k) => (newStats.perLessonStats[k]?.correct ?? 0) > 0).length;
+          if (kinds >= 4) add("explorer");
+
+          const currentHour = new Date().getHours();
+          if (currentHour >= 5 && currentHour < 10) {
+              add("morningMaster");
+          }
+          
+          return newly.length ? [...t, ...newly] : t;
+      });
+      
+      return newStats;
+    });
+
+    speakEn(speakText);
+  }, [coins, globalStreak, lessonId]);
+  
+  const onIncorrect = useCallback(() => {
+      setGlobalStreak(0);
+      setStats(st => {
+          const lessonStats = st.perLessonStats[lessonId] || initialLessonStats();
+          return {
+              ...st,
+              perLessonStats: {
+                  ...st.perLessonStats,
+                  [lessonId]: { ...lessonStats, streak: 0 }
+              }
+          };
+      });
+  }, [lessonId]);
+
+  const handleChoice = useCallback((choice, idx) => {
+    if (!currentQ || isCorrect !== null) return;
+    setSelectedIndex(idx);
+    const ok = choice === currentQ.correctAnswerText;
+    setIsCorrect(ok);
+    if (ok) {
+        onCorrect(currentQ.speak);
+    } else {
+        onIncorrect();
+        speakEn(currentQ.speak);
+    }
+  }, [currentQ, isCorrect, onCorrect, onIncorrect]);
+
+  const handleArrangePick = useCallback((token) => {
+    if (!currentQ || isCorrect !== null || arrPicked.includes(token)) return;
+    const picked = [...arrPicked, token];
+    setArrPicked(picked);
+    if (picked.length === currentQ.tokens.length) {
+      const ok = picked.join(" ") === currentQ.answer.join(" ");
+      setIsCorrect(ok);
+      if (ok) {
+          onCorrect(currentQ.speak);
+      } else {
+          onIncorrect();
+          speakEn(currentQ.speak);
+      }
+    }
+  }, [currentQ, isCorrect, arrPicked, onCorrect, onIncorrect]);
+
+  const handleGachaPull = () => {
+    if (gachaPulls < 1) return;
+    setGachaPulls(p => p - 1);
+    
+    const availableRarities = Object.keys(RARITY_WEIGHTS);
+    
+    const weightedPool = [];
+    availableRarities.forEach(rarity => {
+        for (let i = 0; i < RARITY_WEIGHTS[rarity]; i++) {
+            weightedPool.push(rarity);
+        }
+    });
+
+    const pulledRarity = rand(weightedPool.length > 0 ? weightedPool : ['N']);
+    const possibleCards = CARDS_V6_2.filter(c => c.rarity === pulledRarity);
+    const resultCard = rand(possibleCards);
+
+    const isNew = !ownedCards.includes(resultCard.id);
+    setShowGachaResult({ ...resultCard, isNew });
+
+    if (isNew) setOwnedCards(c => [...c, resultCard.id]);
+  };
+
+  const exportData = () => {
+    try {
+      const data = { coins, showFuri, stats, ownedCards, gachaPulls, titlesUnlocked, activeTitle, lessonId, dailyStats, ts: Date.now() };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const timestamp = new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-');
+      a.download = `eigo-save-${timestamp}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {}
+  };
+
+  const importData = (e) => {
+    const file = e?.target?.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const d = JSON.parse(reader.result);
+        setCoins(d.coins ?? 0);
+        setShowFuri(d.showFuri ?? true);
+        setStats(d.stats ?? { totalCorrect: 0, globalStreakMax: 0, perLessonStats: {} });
+        setOwnedCards(d.ownedCards ?? ["cat_n"]);
+        setGachaPulls(d.gachaPulls ?? 0);
+        setTitlesUnlocked(d.titlesUnlocked ?? []);
+        setActiveTitle(d.activeTitle ?? "start");
+        setDailyStats(d.dailyStats ?? {});
+        if (d.lessonId) setLessonId(d.lessonId);
+      } catch {}
+    };
+    reader.readAsText(file);
+  };
+
+  const executeReset = () => {
+    setCoins(0);
+    setShowFuri(true);
+    setStats({ totalCorrect: 0, globalStreakMax: 0, perLessonStats: {} });
+    setOwnedCards(["cat_n"]);
+    setGachaPulls(0);
+    setTitlesUnlocked([]);
+    setActiveTitle("start");
+    setLessonId(LESSONS[0].id);
+    setGlobalStreak(0);
+    setDailyStats({});
+    setShowResetConfirm(false);
+    try { localStorage.removeItem(LS_KEY); } catch {}
+  };
+
+  const bgClass = activePerk.theme === "night" ? "from-slate-900 via-indigo-900 to-sky-900 text-white" : "from-indigo-50 via-sky-50 to-white text-gray-900";
+  const getTitleEmoji = (id) => (GLOBAL_TITLES.find(t => t.id === id)?.emoji || '🌟');
+
+  return (
+    <div className={`min-h-screen ${bgClass}`}>
+      <div className="max-w-6xl mx-auto px-4 py-6">
+        {/* ヘッダー */}
+        <div className={`relative mb-6 overflow-hidden bg-white/80 backdrop-blur transition-all duration-300 rounded-3xl ${activePerk.headerClass || 'border'}`}>
+          <div className="absolute inset-0 bg-gradient-to-r from-sky-100/70 via-purple-100/50 to-pink-100/60" />
+          <div className="relative p-5 md:p-7 flex flex-col md:flex-row md:items-center md:justify-between gap-4 text-gray-900">
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 flex items-center justify-center text-white rounded-xl text-lg bg-sky-600">{getTitleEmoji(activeTitle)}</div>
+              <div>
+                <h1 className="text-2xl md:text-3xl font-extrabold tracking-tight"><F rb="小2" rt="しょうに" /><F rb="向け" rt="むけ" /> <F rb="英語" rt="えいご" /> <F rb="文法" rt="ぶんぽう" />あそび</h1>
+                <div className="text-xs text-gray-600 flex items-center gap-2">
+                  {activePerk.headerBadge && <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-100 border text-amber-800">{activePerk.headerBadge}</span>}
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center flex-wrap gap-2 md:gap-3">
+              <div className="flex items-center gap-2">
+                <div className={`relative flex items-center gap-2 text-sm px-3 py-2 rounded-xl bg-white/90 border transition-transform ${coinDelta > 0 ? 'scale-105' : ''}`}>
+                  <span>✨ <F rb="合計" rt="ごうけい" /> Pt</span><span className="font-extrabold tabular-nums">{coins}</span>
+                  {coinDelta > 0 && <span className="absolute -top-2 right-1 text-xs text-emerald-700 animate-bounce">+{coinDelta}</span>}
+                </div>
+                 <div className="flex items-center gap-2 text-sm px-3 py-2 rounded-xl bg-white/90 border">
+                  <span>🗓️ <F rb="今日" rt="きょう" />の Pt</span><span className="font-extrabold tabular-nums">{dailyStats[getTodayString()] || 0}</span>
+                </div>
+              </div>
+              <button onClick={() => setShowFuri(s => !s)} className="text-xs px-2 py-1 rounded-lg border bg-white/90">ふりがな：{showFuri ? 'ON' : 'OFF'}</button>
+              <div className="relative group">
+                <div className="flex items-center gap-1">
+                    <button onClick={exportData} className="text-xs px-2 py-1 rounded-l-lg border bg-white/90">セーブ</button>
+                    <label className="text-xs px-2 py-1 rounded-r-lg border-t border-b border-r bg-white/90 cursor-pointer">ロード <input ref={fileInputRef} type="file" className="hidden" accept=".json" onChange={importData} /></label>
+                </div>
+                <div className="absolute bottom-full mb-2 w-64 left-1/2 -translate-x-1/2 p-2 text-xs bg-gray-800 text-white rounded-md opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    データは自動で保存されます。<br/>他のPCへデータを移す時に使ってください。
+                </div>
+              </div>
+              <button onClick={() => setShowResetConfirm(true)} className="text-xs px-2 py-1 rounded-lg border bg-rose-100 text-rose-700">リセット</button>
+
+            </div>
+          </div>
+        </div>
+
+        {/* レッスン選択 */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          {LESSONS.map((l) => (
+            <button key={l.id} onClick={() => setLessonId(l.id)}
+              className={`px-3 py-1.5 rounded-full border text-sm transition-colors ${lessonId === l.id ? 'bg-sky-600 text-white border-sky-600' : 'bg-white/90 text-gray-800'}`}>
+              {showFuri ? l.name : <span>{typeof l.name === 'string' ? l.name : l.id}</span>}
+            </button>
+          ))}
+        </div>
+
+        {/* 出題カード */}
+        <div className={`${getLessonCardClass("relative rounded-3xl bg-white/90 p-5 md:p-7 shadow-sm text-gray-900 transition-all duration-300 flex flex-col min-h-[480px]", currentLessonStats.titles)} ${isCorrect === false ? 'bg-rose-50/70' : ''} ${isCorrect === true ? 'animate-flash-correct' : ''}`}>
+          <div className="absolute -top-3 -left-3 text-3xl select-none drop-shadow-lg">{getTitleEmoji(activeTitle)}</div>
+          {currentQ ? (
+            <>
+              <div className="flex-grow">
+                {currentQ.type === 'choice' && (
+                  <>
+                    <div className="text-2xl font-semibold mb-2">{currentQ.en.replace('___', '＿＿＿')}</div>
+                <div className="text-lg text-gray-700 mb-4">{showFuri ? currentQ.jp : <span>{currentQ.jp.props.children.map(child => typeof child === 'object' ? child.props.rb : child)}</span>}</div>
+                
+                {gachaPulls > 0 && isCorrect === null && (
+                  <div className="my-4 p-3 rounded-lg bg-gradient-to-r from-amber-100 to-yellow-200 border border-amber-300 text-amber-800 font-bold text-center animate-pulse">
+                    🎉 ガチャを {gachaPulls} 回 引けるようになりました！ 🎉
+                  </div>
+                )}
+                
+                <div className="flex items-center gap-4 text-xs text-gray-600 mb-2">
+                  <span>レッスンPt：{currentLessonStats.correct * 5}</span>
+                      <span>連続正解：{currentLessonStats.streak} (MAX: {currentLessonStats.streakMax})</span>
+                    </div>
+                    <div className="flex items-center gap-2 mb-3">
+                      <div className="flex items-center gap-1">
+                        {LESSON_TITLES.map(t => (
+                            <span key={t.id} className={`px-2 py-0.5 rounded-full text-xs border ${currentLessonStats.titles.includes(t.id) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500'}`}>{t.emoji} {t.name}</span>
+                        ))}
+                      </div>
+                      <button onClick={() => setShowLessonTitleInfo(true)} className="text-xs w-5 h-5 bg-gray-200 text-gray-600 rounded-full">？</button>
+                    </div>
+                    
+                    {activePerk.beHint && (
+                      <div className="mb-3">
+                        <button onClick={() => setShowHint(s => !s)} className="text-xs px-2 py-1 rounded-lg border bg-emerald-50 text-emerald-800">ヒントを{showHint ? 'かくす' : '見る'}</button>
+                        {showHint && (
+                          <div className="mt-2 text-sm text-emerald-700 p-2 bg-emerald-50 rounded-lg">
+                            <h4 className="font-bold">ヒント：</h4>
+                            <div>{currentQ.explainJP || 'この もんだい には ヒント が ありません。'}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                      {choiceShuffle.map((c, i) => {
+                          const isSelected = selectedIndex === i;
+                          const isTheCorrectAnswer = c === currentQ.correctAnswerText;
+                          let btnClass = 'bg-white hover:bg-sky-50';
+                          if (isSelected) {
+                              btnClass = isCorrect ? 'bg-emerald-100 border-emerald-500' : 'bg-gray-200 border-gray-400 text-gray-500 line-through';
+                          } else if (isCorrect === false && isTheCorrectAnswer) {
+                              btnClass = 'bg-emerald-100 border-emerald-500';
+                          }
+                          return (<button key={i} onClick={() => handleChoice(c, i)} disabled={isCorrect !== null} className={`p-3 text-lg rounded-xl border-2 transition-all duration-200 ${btnClass}`}>{c}</button>);
+                      })}
+                    </div>
+                  </>
+                )}
+                {currentQ.type === 'arrange' && (
+                  <>
+                    <div className="text-xl font-semibold mb-2">単語を 正しい順に 並べよう</div>
+                    <div className="text-lg text-gray-700 mb-4">{showFuri ? currentQ.jp : <span>{currentQ.jp.props.children.map(child => typeof child === 'object' ? child.props.rb : child)}</span>}</div>
+                    <div className="flex items-center gap-4 text-xs text-gray-600 mb-2">
+                      <span>レッスンPt：{currentLessonStats.correct * 5}</span>
+                      <span>連続正解：{currentLessonStats.streak} (MAX: {currentLessonStats.streakMax})</span>
+                    </div>
+                    <div className="flex items-center gap-1 mb-3">
+                      {LESSON_TITLES.map(t => (
+                          <span key={t.id} className={`px-2 py-0.5 rounded-full text-xs border ${currentLessonStats.titles.includes(t.id) ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-500'}`}>{t.emoji} {t.name}</span>
+                      ))}
+                      <button onClick={() => setShowLessonTitleInfo(true)} className="text-xs w-5 h-5 bg-gray-200 text-gray-600 rounded-full">？</button>
+                    </div>
+                    
+                    {activePerk.beHint && (
+                      <div className="mb-3">
+                        <button onClick={() => setShowHint(s => !s)} className="text-xs px-2 py-1 rounded-lg border bg-emerald-50 text-emerald-800">ヒントを{showHint ? 'かくす' : '見る'}</button>
+                        {showHint && (
+                          <div className="mt-2 text-sm text-emerald-700 p-2 bg-emerald-50 rounded-lg">
+                            <h4 className="font-bold">ヒント：</h4>
+                            <div>{currentQ.explainJP || 'この もんだい には ヒント が ありません。'}</div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    <div className="flex flex-wrap gap-2 mb-3">
+                      {arrangeChoices.map((t, i) => (<button key={i} onClick={() => handleArrangePick(t)} disabled={arrPicked.includes(t) || isCorrect !== null} className="px-3 py-2 text-lg rounded-xl border bg-white hover:bg-sky-50 disabled:bg-gray-200 disabled:text-gray-400">{t}</button>))}
+                    </div>
+                    <div className="min-h-[3rem] text-xl tracking-wide p-3 bg-gray-100 rounded-lg border">{arrPicked.join(' ')}</div>
+                  </>
+                )}
+              </div>
+              
+              {isCorrect !== null && (
+                <div className="mt-4 p-3 rounded-lg bg-gray-50 border">
+                  {isCorrect ? (<div className="text-emerald-700 font-bold text-lg">🎉 正解！</div>) : (<><div className="text-rose-700 font-bold text-lg">😢 おしい！</div><div className="mt-2">正解は「<b className="text-emerald-700">{currentQ.correctAnswerText}</b>」でした。</div></>)}
+                  {currentQ.explainJP && <div className="mt-2"><h4 className="font-bold text-gray-600">📝 かくにん</h4><div className="text-gray-800">{currentQ.explainJP}</div></div>}
+                  
+                  <div className="mt-4 text-right"> 
+                      <button onClick={nextQuestion} className="px-5 py-3 text-lg rounded-xl bg-sky-600 text-white hover:bg-sky-700 transition-colors">つぎの もんだい →</button>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : (<div>読み込み中…</div>)}
+        </div>
+
+        {/* 称号/カードセクション */}
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="rounded-2xl border bg-white/90 p-4 text-gray-900">
+            <h3 className="font-bold mb-3 text-lg flex items-center gap-2">👑 <F rt="ぜんたいの しょうごう" rb="全体の称号" /> <button onClick={() => setShowTitleInfo(true)} className="text-xs w-5 h-5 bg-gray-200 text-gray-600 rounded-full">？</button></h3>
+            <div className="flex flex-wrap gap-2">
+              {GLOBAL_TITLES.map(t => (<button key={t.id} onClick={() => setActiveTitle(t.id)} disabled={!titlesUnlocked.includes(t.id)} className={`px-3 py-1.5 rounded-full border text-sm transition-all ${activeTitle === t.id ? 'bg-amber-400 border-amber-500 text-white font-bold' : 'bg-white disabled:bg-gray-200 disabled:text-gray-400'}`}>{t.emoji} {t.name}</button>))}
+            </div>
+          </div>
+          <div className="rounded-2xl border bg-white/90 p-4 text-gray-900">
+            <div className="flex justify-between items-center mb-3">
+                <h3 className="font-bold text-lg">🎴 <F rt="きゃら" rb="キャラ" /><F rt="かーど" rb="カード" /></h3>
+                <button onClick={handleGachaPull} disabled={gachaPulls < 1} className="px-4 py-2 rounded-lg bg-gradient-to-r from-amber-400 to-yellow-500 text-white font-bold shadow-lg disabled:from-gray-300 disabled:to-gray-400 disabled:shadow-none transition-all hover:scale-105">ガチャを引く ({gachaPulls}回)</button>
+            </div>
+            <div className="flex flex-wrap gap-4">
+              {CARDS_V6_2.filter(c => ownedCards.includes(c.id)).sort((a, b) => RARITY_LEVELS[a.rarity] - RARITY_LEVELS[b.rarity]).map(c => {
+                const rarityColors = { N: 'bg-gray-500', R: 'bg-yellow-500', SR: 'bg-purple-600', SSR: 'bg-red-600', L: 'bg-gradient-to-r from-cyan-400 to-blue-500' };
+                const borderColors = { N: 'border-gray-300', R: 'border-amber-400', SR: 'border-indigo-400', SSR: 'border-red-400', L: 'border-blue-400' };
+                const bgColors = { N: 'bg-gray-100', R: 'bg-yellow-100/70', SR: 'bg-indigo-100/70', SSR: 'bg-red-100/70', L: 'bg-cyan-100/70' };
+                
+                return (
+                    <div key={c.id} className={`relative flex flex-col items-center gap-2 px-4 py-3 rounded-2xl border-2 shadow-lg transition-transform hover:scale-105 ${borderColors[c.rarity]} ${bgColors[c.rarity]}`}>
+                      <span className={`absolute -top-3 -right-3 px-2.5 py-1 text-xs font-bold text-white rounded-full shadow-md ${rarityColors[c.rarity]}`}>{c.rarity}</span>
+                      <span className="text-5xl drop-shadow-md">{c.emoji}</span>
+                      <span className="font-bold text-gray-800">{c.name}</span>
+                    </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      {/* モーダル */}
+      {showResetConfirm && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl p-8 shadow-2xl max-w-sm w-full text-gray-900">
+                <h3 className="text-xl font-bold mb-4">ほんとうにリセットしますか？</h3>
+                <p className="text-gray-600 mb-6">すべてのポイント、レッスン記録、称号が消えてしまいます。この操作は元に戻せません。</p>
+                <div className="flex justify-end gap-4">
+                    <button onClick={() => setShowResetConfirm(false)} className="px-4 py-2 rounded-lg border">キャンセル</button>
+                    <button onClick={executeReset} className="px-4 py-2 rounded-lg bg-rose-600 text-white">リセットする</button>
+                </div>
+            </div>
+        </div>
+      )}
+      {showGachaResult && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setShowGachaResult(null)}>
+            <div className="bg-white rounded-2xl p-8 shadow-2xl text-center animate-jump-in text-gray-900" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-lg font-bold mb-2">{showGachaResult.isNew ? "✨新しいカードをゲット！✨" : "カードをゲット！"}</h3>
+                <div className={`inline-flex flex-col items-center gap-2 px-8 py-6 my-4 rounded-2xl border-4 shadow-lg ${
+                    showGachaResult.rarity === 'L' ? 'border-blue-400 bg-cyan-50' :
+                    showGachaResult.rarity === 'SSR' ? 'border-red-400 bg-red-50' : 
+                    showGachaResult.rarity === 'SR' ? 'border-indigo-400 bg-indigo-50' : 
+                    showGachaResult.rarity === 'R' ? 'border-amber-400 bg-amber-50' : 
+                    'border-gray-300 bg-gray-50'
+                }`}>
+                    <span className="text-7xl drop-shadow-lg">{showGachaResult.emoji}</span>
+                    <span className="text-2xl font-bold text-gray-800">{showGachaResult.name}</span>
+                    <span className="text-lg font-bold text-gray-600">レア度: {showGachaResult.rarity}</span>
+                </div>
+                <button onClick={() => setShowGachaResult(null)} className="px-5 py-2 rounded-lg bg-sky-600 text-white">とじる</button>
+
+            </div>
+        </div>
+      )}
+      {showTitleInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowTitleInfo(false)}>
+            <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full text-gray-900" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-xl font-bold mb-4">👑 全体の称号のとりかた</h3>
+                <ul className="space-y-2">
+                    {GLOBAL_TITLES.map(t => (
+                        <li key={t.id} className="flex items-start gap-3">
+                            <span className="text-2xl">{t.emoji}</span>
+                            <div>
+                                <span className="font-bold">{t.name}</span>
+                                <p className="text-sm text-gray-600">{t.desc}</p>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+                <div className="text-right mt-5">
+                    <button onClick={() => setShowTitleInfo(false)} className="px-5 py-2 rounded-lg bg-sky-600 text-white">とじる</button>
+                </div>
+            </div>
+        </div>
+      )}
+      {showLessonTitleInfo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowLessonTitleInfo(false)}>
+            <div className="bg-white rounded-2xl p-6 shadow-2xl max-w-md w-full text-gray-900" onClick={(e) => e.stopPropagation()}>
+                <h3 className="text-xl font-bold mb-4">🏅 レッスン称号のとりかた</h3>
+                <ul className="space-y-2">
+                    {LESSON_TITLES.map(t => (
+                        <li key={t.id} className="flex items-start gap-3">
+                            <span className="text-2xl">{t.emoji}</span>
+                            <div>
+                                <span className="font-bold">{t.name}</span>
+                                <p className="text-sm text-gray-600">{t.desc}</p>
+                            </div>
+                        </li>
+                    ))}
+                </ul>
+                <div className="text-right mt-5">
+                    <button onClick={() => setShowLessonTitleInfo(false)} className="px-5 py-2 rounded-lg bg-sky-600 text-white">とじる</button>
+                </div>
+            </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// 6. Reactアプリをマウント（起動）
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<App />);
+
+    </script>
+</body>
+</html>
+
